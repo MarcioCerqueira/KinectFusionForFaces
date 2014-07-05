@@ -1,0 +1,4 @@
+#Frontal_cascade
+C:/Users/mcerqueira/Downloads/opencv/data/haarcascades/haarcascade_frontalface_alt.xml
+#Profile_cascade
+C:/Users/mcerqueira/Downloads/opencv/data/haarcascades/haarcascade_profileface.xml
