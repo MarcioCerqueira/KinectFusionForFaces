@@ -23,8 +23,8 @@ typedef DeviceArray2D<RGB> View;
 class Image
 {
 public:
-	Image(int cols, int rows);
 
+	Image(int cols, int rows);
 	PtrStepSz<const unsigned short> getDepthMap() { return depthMap_; };
 	PtrStepSz<const CaptureOpenNI::RGB> getRGBMap() { return rgbMap_; };
 	device::DepthMap getDepthDevice() { return depthDevice_; };
@@ -46,7 +46,7 @@ public:
 	void applyDepthTruncation(device::DepthMap& depthMap, float truncValue);
 	void applyPyrDown();
 	void convertToPointCloud(MyPointCloud *currentPointCloud);
-	void load(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boost::shared_ptr<openni_wrapper::DepthImage>& depthImage);
+	void load(pcl::gpu::PtrStepSz<const pcl::gpu::CaptureOpenNI::RGB> rgbImage, pcl::gpu::PtrStepSz<const unsigned short> depthImage);
 	void updateDeviceData();
 
 private:
@@ -60,11 +60,9 @@ private:
 	device::Intr intrinsics;
 	int cols_, rows_;
 	std::vector<device::DepthMap> depths_curr_;
-	std::vector<unsigned short> sourceDepthData;
-	std::vector<KinfuTracker::RGB> sourceRgbData;
 	KinfuTracker::View viewDevice;
 	std::vector<KinfuTracker::RGB> viewHost;
-		
+	std::vector<unsigned short> depthTemp;
 };
 
 #endif

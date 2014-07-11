@@ -12,7 +12,9 @@
 #include "Mediators/MeshGenerationMediator.h"
 #include "Mediators/ColoredReconstructionMediator.h"
 #include "Mediators/HeadPoseEstimationMediator.h"
-#include "Kinect.h"
+#include "Capture/AbstractCapture.h"
+#include "Capture/Kinect.h"
+#include "Capture/ONIGrabber.h"
 #include "Image.h"
 #include "FaceDetection.h"
 
@@ -27,7 +29,7 @@ int windowHeight = 960;
 
 //Our Objects
 Image *imageCollection;
-Kinect *kinect;
+AbstractCapture *capture;
 Reconstruction *reconstruction;
 MyGLImageViewer *myGLImageViewer;
 MyGLCloudViewer *myGLCloudViewer;
@@ -249,83 +251,6 @@ void loadARDepthDataBasedOnDepthMaps()
 	
 }
 
-void computeVolumeContours()
-{
-
-	glViewport(0, windowHeight/2, windowWidth/2, windowHeight/2);
-	glMatrixMode(GL_PROJECTION);          
-	glLoadIdentity();    
-	
-	myGLImageViewer->setProgram(shaderProg[7]);
-	myGLImageViewer->drawRGBTextureOnShader(texVBO, VIRTUAL_RGB_BO, windowWidth, windowHeight);
-	myGLImageViewer->loadFrameBufferTexture(0, windowHeight/2, windowWidth/2, windowHeight/2);
-	
-	glScissor(0, windowHeight/2, windowWidth/2, windowHeight/2);
-	glEnable(GL_SCISSOR_TEST);
-	glClear(GL_COLOR_BUFFER_BIT);
-	glDisable(GL_SCISSOR_TEST);
-	
-	unsigned char *volumeImage = myGLImageViewer->getFrameBuffer();
-	
-	CvMemStorage* storage = cvCreateMemStorage(0);
-	CvSeq* contours = 0;
-	
-	image->imageData = (char*)volumeImage;
-	cvCvtColor(image, image, CV_BGR2RGB);
-	//cvSaveImage("F:/image.png", image);
-	cvCvtColor(image, grayImage, CV_BGR2GRAY);
-	//cvSaveImage("F:/grayImage.png", grayImage);
-	cvThreshold(grayImage, grayImage, 0, 255, CV_THRESH_OTSU);
-	//cvSaveImage("F:/binaryImage.png", grayImage);
-	cvFindContours(grayImage, storage, &contours);
-	cvDrawContours(grayImage, contours, cvScalarAll(255), cvScalarAll(0), 100);
-	//cvSaveImage("F:/contoursImage.png", grayImage);
-
-	double K[] = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };  
-  
-	float t=0;  
-	for(int i = 0; i < (3 * 3); ++i)  
-		 t = t + K[i];  
-	for(int i = 0; i < (3 * 3); ++i)  
-		 K[i] = K[i] / t;  
-  
-	CvMat kernel = cvMat(3, 3, CV_64FC1, K); 
-	for(int x = 0; x < 5; x++)
-		cvFilter2D(grayImage, grayImage, &kernel);
-	
-	//cvSaveImage("F:/gaussContoursImage.png", grayImage);
-
-	for(int pixel = 0; pixel < (640 * 480); pixel++)
-		for(int ch = 0; ch < 3; ch++)
-			image->imageData[pixel * 3 + ch] = grayImage->imageData[pixel];
-
-	myGLImageViewer->loadRGBTexture((unsigned char*)image->imageData, texVBO, CONTOURS_FBO, image->width, image->height);
-
-	cvClearMemStorage(storage);
-
-}
-
-void computeTSDFClippedRegion()
-{
-
-	cudaMemcpy(clippedImage, reconstruction->getTsdfVolume()->getClippedRegion(), kinect->getImageWidth() * kinect->getImageHeight() * sizeof(unsigned char), 
-		cudaMemcpyDeviceToHost);
-
-	IplImage *dilatedImage = cvCreateImage(cvSize(kinect->getImageWidth(), kinect->getImageHeight()), IPL_DEPTH_8U, 3);
-	for(int pixel = 0; pixel < kinect->getImageWidth() * kinect->getImageHeight(); pixel++) {
-	
-		dilatedImage->imageData[pixel * 3 + 0] = (char)clippedImage[pixel];
-		dilatedImage->imageData[pixel * 3 + 1] = (char)clippedImage[pixel];
-		dilatedImage->imageData[pixel * 3 + 2] = (char)clippedImage[pixel];
-	
-	}
-
-	cvDilate(dilatedImage, dilatedImage, 0, 3);
-	myGLImageViewer->loadRGBTexture((unsigned char*)dilatedImage->imageData, texVBO, SUBTRACTION_MASK_FBO, kinect->getImageWidth(), kinect->getImageHeight());
-	cvReleaseImage(&dilatedImage);
-
-}
-
 void reshape(int w, int h)
 {
 	windowWidth = w;
@@ -359,7 +284,7 @@ void displayDepthData()
 	glLoadIdentity();    
 	
 	myGLImageViewer->loadDepthTexture((unsigned short*)imageCollection->getDepthMap().data, texVBO, REAL_DEPTH_FROM_DEPTHMAP_BO, 
-		reconstruction->getThreshold(), kinect->getImageWidth(), kinect->getImageHeight());
+		reconstruction->getThreshold(), capture->getImageWidth(), capture->getImageHeight());
 	myGLImageViewer->drawRGBTexture(texVBO, REAL_DEPTH_FROM_DEPTHMAP_BO, windowWidth, windowHeight);
 
 }
@@ -370,8 +295,8 @@ void displayRGBData()
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity(); 
 
-	myGLImageViewer->loadRGBTexture((const unsigned char*)imageCollection->getRGBMap().data, texVBO, REAL_RGB_BO, kinect->getImageWidth(), 
-		kinect->getImageHeight());
+	myGLImageViewer->loadRGBTexture((const unsigned char*)imageCollection->getRGBMap().data, texVBO, REAL_RGB_BO, capture->getImageWidth(), 
+		capture->getImageHeight());
 	myGLImageViewer->drawRGBTexture(texVBO, REAL_RGB_BO, windowWidth, windowHeight);
 
 }
@@ -384,7 +309,7 @@ void displayRaycastedData()
 	glLoadIdentity();    
 
 	myGLImageViewer->loadRGBTexture(imageCollection->getRaycastImage(reconstruction->getVolumeSize(), 
-		reconstruction->getGlobalPreviousPointCloud()), texVBO, RAYCAST_BO, kinect->getImageWidth(), kinect->getImageHeight());
+		reconstruction->getGlobalPreviousPointCloud()), texVBO, RAYCAST_BO, capture->getImageWidth(), capture->getImageHeight());
 	myGLImageViewer->drawRGBTexture(texVBO, RAYCAST_BO, windowWidth, windowHeight);
 
 }
@@ -446,9 +371,9 @@ void idle()
 {
 	
 	bool preGlobalTimeGreaterThanZero;
-	if(kinect->grabFrame()) {
+	if(capture->grabFrame()) {
 
-		imageCollection->load(kinect->getRGBImage(), kinect->getDepthImage());
+		imageCollection->load(capture->getRGBImage(), capture->getDepthImage());
 
 		if(hasFaceDetection) {
 			if(faceDetected) {
@@ -663,7 +588,7 @@ void init()
 
 void releaseObjects() {
 
-  delete kinect;
+  delete capture;
   delete imageCollection;
   delete reconstruction;
   delete myGLImageViewer;
@@ -694,10 +619,11 @@ int main(int argc, char **argv) {
   {
 	//Initialize some objects
 	reconstruction = new Reconstruction(volumeSize);
-	kinect = new Kinect();
+	//capture = new ONIGrabber("teste.oni");
+	capture = new Kinect();
 	imageCollection = new Image(640, 480);
 
-	imageCollection->setDepthIntrinsics(kinect->getFocalLength(), kinect->getFocalLength());
+	imageCollection->setDepthIntrinsics(capture->getFocalLength(), capture->getFocalLength());
 	imageCollection->setTrancationDistance(volumeSize);
 
 	reconstruction->setIntrinsics(imageCollection->getIntrinsics());

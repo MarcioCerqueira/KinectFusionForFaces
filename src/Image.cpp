@@ -12,7 +12,6 @@ Image::Image(int cols, int rows) {
 	rows_ = rows;
 	trancationDistance_ = 30; //mm
 	allocateBuffers(cols, rows);
-
 }
 
 void Image::setDepthIntrinsics (float fx, float fy, float cx, float cy)  {
@@ -44,8 +43,8 @@ void Image::applyDepthTruncation(float truncValue) {
 
 	int cols;
 	device::truncateDepth(depths_curr_[0], truncValue);
-	depths_curr_[0].download(sourceDepthData, cols);
-	depthMap_.data = &sourceDepthData[0];
+	depths_curr_[0].download(depthTemp, cols);
+	depthMap_.data = &depthTemp[0];
 
 }
 
@@ -73,24 +72,11 @@ void Image::convertToPointCloud(MyPointCloud *currentPointCloud) {
 
 }
 
-void Image::load(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boost::shared_ptr<openni_wrapper::DepthImage>& depthImage) {
+void Image::load(pcl::gpu::PtrStepSz<const pcl::gpu::CaptureOpenNI::RGB> rgbImage, pcl::gpu::PtrStepSz<const unsigned short> depthImage) {
 
-	depthMap_.cols = depthImage->getWidth();
-	depthMap_.rows = depthImage->getHeight();
-	depthMap_.step = depthMap_.cols * depthMap_.elemSize();
-	
-	sourceDepthData.resize(depthMap_.cols * depthMap_.rows);
-	depthImage->fillDepthImageRaw(depthMap_.cols, depthMap_.rows, &sourceDepthData[0]);
-	depthMap_.data = &sourceDepthData[0];
-
-	rgbMap_.cols = rgbImage->getWidth();
-	rgbMap_.rows = rgbImage->getHeight();
-	rgbMap_.step = rgbMap_.cols * rgbMap_.elemSize();
-
-	sourceRgbData.resize(rgbMap_.cols * rgbMap_.rows);
-	rgbImage->fillRGB(rgbMap_.cols, rgbMap_.rows, (unsigned char*)&sourceRgbData[0]);
-	rgbMap_.data = &sourceRgbData[0];
-	
+	depthTemp.resize(depthImage.cols * depthImage.rows);
+	this->rgbMap_ = rgbImage;
+	this->depthMap_ = depthImage;
 	updateDeviceData();
 
 }
